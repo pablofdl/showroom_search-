@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import sys
 import re
 import copy
+from collections import defaultdict
 
 ## Class that controls the searching in the index
 class QueryIndex:
@@ -10,6 +11,10 @@ class QueryIndex:
         self.index = {}
         self.stopwordsFile = "stopwords.dat"
         self.indexFile = "productsIndex.dat"
+        self.titleIndexFile = "titleIndex.dat"
+        self.titleIndex={}
+        self.tf={}      #term frequencies
+        self.idf={}    #inverse document frequencies
         self.readIndex()  
         self.getStopwords()
 
@@ -44,10 +49,12 @@ class QueryIndex:
 
     def readIndex(self):
         f=open(self.indexFile, 'r');
+        #first read the number of documents
+        self.numDocuments=int(f.readline().rstrip())
         for line in f:
             line = line.rstrip()
             #term='termID', postings='docID1:pos1,pos2;docID2:pos1,pos2'
-            term, postings = line.split('|')
+            term, postings, tf, idf = line.split('|') 
             #postings=['docId1:pos1,pos2','docID2:pos1,pos2']
             postings = postings.split(';')
             #postings=[['docId1', 'pos1,pos2'], ['docID2', 'pos1,pos2']]
@@ -55,7 +62,41 @@ class QueryIndex:
             #final postings list 
             postings = [ [int(x[0]), map(int, x[1].split(','))] for x in postings ]    
             self.index[term] = postings
+            #read term frequencies
+            tf=tf.split(',')
+            self.tf[term]=map(float, tf)
+            #read inverse document frequency
+            self.idf[term]=float(idf)
         f.close()
+     
+    def dotProduct(self, vec1, vec2):
+        if len(vec1)!=len(vec2):
+            return 0
+        return sum([ x*y for x,y in zip(vec1,vec2) ])
+            
+    def rankDocuments(self, terms, docs):
+        #term at a time evaluation
+        docVectors = defaultdict(lambda: [0]*len(terms))
+        queryVector = [0]*len(terms)
+        for termIndex, term in enumerate(terms):
+            if term not in self.index:
+                continue
+            
+            queryVector[termIndex] = self.idf[term]
+            
+            for docIndex, (doc, postings) in enumerate(self.index[term]):
+                if doc in docs:
+                    docVectors[doc][termIndex] = self.tf[term][docIndex]
+                    
+        #calculate the score of each doc
+        docScores = [ [self.dotProduct(curDocVec, queryVector), doc] for doc, curDocVec in docVectors.iteritems() ]
+        docScores.sort(reverse=True)
+        resultDocs = [x[1] for x in docScores][:10]
+        #print document titles instead if document id's
+##        resultDocs = [ self.titleIndex[x] for x in resultDocs ]
+        return resultDocs
+##        return '\n'.join(resultDocs), '\n'
+
 
     def queryType(self,q):
         if '"' in q:
@@ -73,13 +114,13 @@ class QueryIndex:
             return ''
         elif len(q) > 1:
             return self.ftq(originalQuery)
-        q = q[0]
-        if q not in self.index:
+        term = q[0]
+        if term not in self.index:
             return ''
         else:
-            p = self.index[q]
-            p = [x[0] for x in p]
-            p = ' '.join(map(str,p))
+            postings = self.index[term]
+            docs = [x[0] for x in postings]
+            p = self.rankDocuments(q, docs)
             return p
           
     def ftq(self,q):
@@ -91,16 +132,15 @@ class QueryIndex:
         li = set()
         for term in q:
             try:
-                p = self.index[term]
-                p = [x[0] for x in p]
-                li = li|set(p)
+                postings = self.index[term]
+                docs = [x[0] for x in postings]
+                li = li|set(docs)
             except:
                 #term not in index
                 pass
         
         li = list(li)
-        li.sort()
-        return ' '.join(map(str,li))
+        return self.rankDocuments(q, li)
 
     def pq(self,q):
         originalQuery = q
@@ -111,8 +151,7 @@ class QueryIndex:
             self.owq(originalQuery)
             return
         phraseDocs = self.pqDocs(q)
-
-        return ' '.join(map(str, phraseDocs))
+        return self.rankDocuments(q, phraseDocs)
         
     def pqDocs(self, q):
         phraseDocs = []

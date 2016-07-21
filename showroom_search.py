@@ -1,4 +1,4 @@
-#!/usr/bin/python
+# -*- coding: utf-8 -*-
 
 import sys
 import json
@@ -47,7 +47,7 @@ if __name__=='__main__':
                 break
             s = "Search for " + q + ":"
             print(s)
-            result = index.querySearch(q).split(" ")
+            result = index.querySearch(q)
             if result[0] != "":
                 for x in result:
                     print(json.dumps(index.products[int(x)], sort_keys=True, indent=4))
